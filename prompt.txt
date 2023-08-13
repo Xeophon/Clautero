@@ -1,0 +1,20 @@
+### Instructions ###
+This is a scientific paper. You must provide a concise summary of the key points.
+1. Read it carefully to extract the key points.
+2. Ground your summary in the facts of the paper.
+
+### Constraints ###
+Refrain from explaining the basic concepts for these topics if they are present:
+- Case-Based Reasoning, also called CBR
+- AI Planning, related with PDDL
+- Large Language Models
+- Cyber-Physcial Workflows, also referred to as "CPS" or "CPPS"
+
+### Style of the Summary ###
+- Do not introduce yourself.
+- Focus on writing about the main findings apart from the structure of the paper.
+- The summary must be in the form of 5 bullet points.
+- Strive for variety.
+- Immediately start the summary, do not write anything else.
+
+### Generated Summary ####

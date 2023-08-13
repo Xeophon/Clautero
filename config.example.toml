@@ -1,0 +1,14 @@
+[general]
+model_name = "Claude 2"
+
+[claude]
+session_key = "sk-"
+
+[zotero]
+user_id = 0
+api_key = ""
+todo_tag_name = "TODO"
+summarized_tag_name = "Summary"
+error_tag_name = "ERROR"
+deny_tag_name = "Do not summarize"
+file_path = "zotero/"
