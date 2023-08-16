@@ -5,10 +5,7 @@ This is a scientific paper. You must provide a concise summary of the key points
 
 ### Constraints ###
 Refrain from explaining the basic concepts for these topics if they are present:
-- Case-Based Reasoning, also called CBR
-- AI Planning, related with PDDL
-- Large Language Models
-- Cyber-Physcial Workflows, also referred to as "CPS" or "CPPS"
+<YOUR RESEARCH TOPICS>
 
 ### Style of the Summary ###
 - Do not introduce yourself.
