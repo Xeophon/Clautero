@@ -4,10 +4,11 @@ Small script to auto-summarize new papers in the Zotero library.
 
 ## Setup
 
-1. `pip install -r requirements.txt`
-2. Get your session key from Claude.ai (it is a cookie value)
-3. Rename `config.example.toml` to `config.toml` and add the missing values.
-4. `python main.py`
+1. Edit your research topics / topics which Claude should not dive further into in `prompt.txt`
+2. `pip install -r requirements.txt`
+3. Get your session key from Claude.ai (it is a cookie value)
+4. Rename `config.example.toml` to `config.toml` and add the missing values.
+5. `python main.py`
 
 ## Config values
 
