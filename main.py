@@ -2,13 +2,17 @@ import logging
 import tempfile
 import zipfile
 from pathlib import Path
+from threading import Thread
 from typing import Any
 
 import toml
 from PyPDF2 import PdfReader
-from claude import claude_client
-from claude import claude_wrapper
+from claude_api import Client
+from flask import Flask, jsonify, request
 from pyzotero import zotero
+
+# Flask app initialization
+app = Flask(__name__)
 
 # Load the configuration file
 config = toml.load("config.toml")
@@ -20,8 +24,7 @@ ZOTERO_TODO_TAG_NAME = config["zotero"]["todo_tag_name"]
 ZOTERO_SUMMARIZED_TAG_NAME = config["zotero"]["summarized_tag_name"]
 ZOTERO_DENY_TAG_NAME = config["zotero"]["deny_tag_name"]
 ZOTERO_ERROR_TAG_NAME = config["zotero"]["error_tag_name"]
-FILE_BASE_PATH = config["zotero"]["file_path"]
-CLAUDE_SESSION_KEY = config["claude"]["session_key"]
+CLAUDE_COOKIE = config["claude"]["cookie"]
 
 
 def setup_logger():
@@ -59,9 +62,7 @@ def setup_logger():
 
 
 zot = zotero.Zotero(ZOTERO_USER_ID, "user", ZOTERO_API_KEY)
-claude_client = claude_client.ClaudeClient(CLAUDE_SESSION_KEY)
-organizations = claude_client.get_organizations()
-claude_obj = claude_wrapper.ClaudeWrapper(claude_client, organizations[0]["uuid"])  # type: ignore
+claude_client = Client(CLAUDE_COOKIE)
 logger = setup_logger()
 
 
@@ -97,7 +98,7 @@ def get_file_path(attachment_key):
     :param attachment_key: The key of the attachment.
     :return: The file path for the attachment.
     """
-    return Path(f"{FILE_BASE_PATH}\\{attachment_key}.zip")
+    return Path(f"zotero/{attachment_key}.zip")
 
 
 def key_exists_and_not_none(dictionary: dict, dict_key: Any) -> bool:
@@ -176,18 +177,33 @@ def update_tags(item_id):
     zot.update_item(item_to_update)
 
 
+def add_todo_tag(item_id):
+    """
+    Add the TODO tag to the specified Zotero item.
+    :param item_id: The ID of the item to update.
+    """
+    logger.info(f"Adding TODO tag for item {item_id}")
+    item_to_update = zot.item(item_id)
+    tags = item_to_update["data"]["tags"]
+    tags.extend([{"tag": ZOTERO_TODO_TAG_NAME}])
+    item_to_update["data"]["tags"] = tags
+    zot.update_item(item_to_update)
+
+
 def get_summary_file(item_name, pdf_file_name):
     """
     :param item_name: The name of the item to be summarized.
     :param pdf_file_name: The name of the PDF file to be attached.
     :return: The summarized text of the item.
     """
-    conversation_uuid = claude_obj.start_new_conversation(item_name, "Respond to this message only with 'ok'")
-    attachment = claude_obj.get_attachment(pdf_file_name)
+    conversation_uuid = claude_client.create_new_chat()["uuid"]
+    logger.info(f"Started conversation with ID {conversation_uuid}")
     try:
         logger.info(f"Sending {item_name} to Claude for summarization")
-        response = claude_obj.send_message(open("prompt.txt", "r").read(), attachments=[attachment],
-                                           conversation_uuid=conversation_uuid)["completion"]
+        response = claude_client.send_message(open("prompt.txt", "r").read(), 
+                                            conversation_uuid, 
+                                            attachment=pdf_file_name,
+                                            timeout=600)
         lines = response.splitlines()
         for i, line in enumerate(lines):
             if line.startswith('-'):
@@ -197,30 +213,36 @@ def get_summary_file(item_name, pdf_file_name):
         return None
 
 
-if __name__ == "__main__":
+def summarize_all_docs():
+    """
+    Summarize all documents in Zotero that have the TODO tag.
+    """
     items = zot.top(tag=[ZOTERO_TODO_TAG_NAME, f"-{ZOTERO_ERROR_TAG_NAME}", f"-{ZOTERO_DENY_TAG_NAME}"], limit=50)
     logger.info(f"Found {len(items)} items to summarize")
     for item in items:
         key = item["data"]["key"]
-        pdf_temp_path = None
         if not key_exists_and_not_none(item["data"], "title"):
             logger.warning(f"Skipping item {key} because it has no title")
             set_error_tag(key, ZOTERO_ERROR_TAG_NAME)
             continue
         logger.info(f"Searching attachments for {item['data']['title']} [{key}]")
         zot_children = zot.children(key)
+        logger.info(f"Found {len(zot_children)} attachments for {item['data']['title']} [{key}]")
+        if len(zot_children) == 0:
+            logger.error(f"No attachments for {item['data']['title']} [{key}]")
+            set_error_tag(key, ZOTERO_ERROR_TAG_NAME)
+            continue
         pdf_items = [child for child in zot_children if child.get('data', {}).get('contentType') == 'application/pdf']
         first_pdf_item = pdf_items[0] if pdf_items else None
         if first_pdf_item is None:
             logger.error(f"No PDF attachment found for item {key}, skipping.")
             set_error_tag(key, ZOTERO_DENY_TAG_NAME)
             continue
-
         children_key = first_pdf_item["key"]
         pdf_temp_path = unzip_pdf(get_file_path(children_key))
 
         if pdf_temp_path is None:
-            logger.error(f"Could not find a PDF for item {key} in Koofr, skipping.")
+            logger.error(f"Could not find a PDF for item {key} in the path, skipping.")
             set_error_tag(key, ZOTERO_ERROR_TAG_NAME)
             continue
         if not 5 <= len(PdfReader(pdf_temp_path).pages) <= 60:
@@ -237,3 +259,66 @@ if __name__ == "__main__":
             continue
         write_note(key, text)
         update_tags(key)
+
+
+def add_missing_tags():
+    """
+    Add the TODO tag to all items that are missing it.
+    """
+    items = zot.top(tag=[f"-{ZOTERO_TODO_TAG_NAME}",
+                         f"-{ZOTERO_SUMMARIZED_TAG_NAME}",
+                         f"-{ZOTERO_ERROR_TAG_NAME}",
+                         f"-{ZOTERO_DENY_TAG_NAME}"], limit=50)
+    for item in items:
+        add_todo_tag(item["data"]["key"])
+
+
+@app.route('/ping/', methods=['GET'])
+def ping():
+    """Endpoint to check if the server is running."""
+    return jsonify({"status": "Server is up and running!"})
+
+
+@app.route('/add_missing_tags/', methods=['GET'])
+def flask_add_missing_tags():
+    """Endpoint to run add_missing_tags function."""
+    try:
+        add_missing_tags()
+        return jsonify({"status": "Tags added successfully!"})
+    except Exception as e:
+        return jsonify({"status": "Error", "message": str(e)})
+
+
+@app.route('/summarize/', methods=['GET'])
+def summarize():
+    """Endpoint to run summarize_all_docs function in the background."""
+
+    def run_in_background():
+        try:
+            summarize_all_docs()
+        except Exception as e:
+            print(f"Error while summarizing: {e}")  # Log the error, can be improved with a proper logging mechanism
+
+    thread = Thread(target=run_in_background)
+    thread.start()
+    return jsonify({"status": "started summary"})
+
+
+@app.route('/update_cookie/', methods=['POST'])
+def update_cookie():
+    """Endpoint to update CLAUDE_COOKIE."""
+    try:
+        data = request.get_json()
+        key = data.get('key')
+        if not key:
+            return jsonify({"status": "Error", "message": "key not provided"}), 400
+
+        global CLAUDE_COOKIE
+        CLAUDE_COOKIE = key
+        return jsonify({"status": "CLAUDE_COOKIE updated successfully!"})
+    except Exception as e:
+        return jsonify({"status": "Error", "message": str(e)}), 500
+
+
+if __name__ == "__main__":
+    app.run()

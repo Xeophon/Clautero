@@ -2,7 +2,7 @@
 model_name = "Claude 2"
 
 [claude]
-session_key = "sk-"
+cookie = "YOUR COOKIE HERE"
 
 [zotero]
 user_id = 0
