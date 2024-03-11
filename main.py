@@ -1,30 +1,32 @@
+import configparser
 import logging
 import tempfile
 import zipfile
+from io import BytesIO
 from pathlib import Path
-from threading import Thread
 from typing import Any
 
-import toml
+import uvicorn
 from PyPDF2 import PdfReader
-from claude_api import Client
-from flask import Flask, jsonify, request
+from anthropic import Anthropic
+from fastapi import BackgroundTasks, FastAPI  # Updated import for FastAPI
 from pyzotero import zotero
 
-# Flask app initialization
-app = Flask(__name__)
-
 # Load the configuration file
-config = toml.load("config.toml")
+config = configparser.ConfigParser()  # Create a ConfigParser object
+config.read('config.ini')  # Read the config.ini file
 
-MODEL_NAME = config["general"]["model_name"]
-ZOTERO_API_KEY = config["zotero"]["api_key"]
-ZOTERO_USER_ID = config["zotero"]["user_id"]
-ZOTERO_TODO_TAG_NAME = config["zotero"]["todo_tag_name"]
-ZOTERO_SUMMARIZED_TAG_NAME = config["zotero"]["summarized_tag_name"]
-ZOTERO_DENY_TAG_NAME = config["zotero"]["deny_tag_name"]
-ZOTERO_ERROR_TAG_NAME = config["zotero"]["error_tag_name"]
-CLAUDE_COOKIE = config["claude"]["cookie"]
+MODEL_NAME = config.get('general', 'model_name')
+ZOTERO_API_KEY = config.get('zotero', 'api_key')
+ZOTERO_USER_ID = config.getint('zotero', 'user_id')
+ZOTERO_TODO_TAG_NAME = config.get('zotero', 'todo_tag_name')
+ZOTERO_SUMMARIZED_TAG_NAME = config.get('zotero', 'summarized_tag_name')
+ZOTERO_DENY_TAG_NAME = config.get('zotero', 'deny_tag_name')
+ZOTERO_ERROR_TAG_NAME = config.get('zotero', 'error_tag_name')
+FILE_BASE_PATH = config.get('zotero', 'file_path')
+API_KEY = config.get('claude', 'api_key')
+
+app = FastAPI()  # Create a FastAPI instance
 
 
 def setup_logger():
@@ -36,8 +38,8 @@ def setup_logger():
     :return: A logger instance configured with console and file handlers.
     """
     # create logger
-    logger = logging.getLogger("Clautero")
-    logger.setLevel(logging.DEBUG)  # set logger level
+    _logger = logging.getLogger("Clautero")
+    _logger.setLevel(logging.DEBUG)  # set logger level
 
     # create console handler and set level to debug
     console_handler = logging.StreamHandler()
@@ -55,14 +57,13 @@ def setup_logger():
     file_handler.setFormatter(standard_formatter)
 
     # add handlers to logger
-    logger.addHandler(console_handler)
-    logger.addHandler(file_handler)
+    _logger.addHandler(console_handler)
+    _logger.addHandler(file_handler)
 
-    return logger
+    return _logger
 
 
 zot = zotero.Zotero(ZOTERO_USER_ID, "user", ZOTERO_API_KEY)
-claude_client = Client(CLAUDE_COOKIE)
 logger = setup_logger()
 
 
@@ -190,21 +191,65 @@ def add_todo_tag(item_id):
     zot.update_item(item_to_update)
 
 
+def extract_text_from_pdf(pdf_data) -> str:
+    """
+    Extracts text from a byte-read PDF using PyPDF2.
+
+    :param pdf_data: The byte-read PDF data.
+    :return: The extracted text from the PDF.
+    """
+    try:
+        # Create a BytesIO object from the PDF data
+        pdf_buffer = BytesIO(pdf_data)
+
+        # Create a PDF reader object
+        pdf_reader = PdfReader(pdf_buffer)
+
+        # Initialize an empty string to store the extracted text
+        extracted_text = ""
+
+        # Iterate over each page of the PDF
+        for page in pdf_reader.pages:
+            # Extract the text from the page
+            page_text = page.extract_text()
+
+            # Append the page text to the extracted text
+            extracted_text += page_text
+
+        return extracted_text
+    except Exception as e:
+        print(f"Error extracting text from PDF: {e}")
+        return None
+
+
 def get_summary_file(item_name, pdf_file_name):
     """
     :param item_name: The name of the item to be summarized.
     :param pdf_file_name: The name of the PDF file to be attached.
     :return: The summarized text of the item.
     """
-    conversation_uuid = claude_client.create_new_chat()["uuid"]
-    logger.info(f"Started conversation with ID {conversation_uuid}")
+    client = Anthropic(api_key=API_KEY)
+
     try:
         logger.info(f"Sending {item_name} to Claude for summarization")
-        response = claude_client.send_message(open("prompt.txt", "r").read(), 
-                                            conversation_uuid, 
-                                            attachment=pdf_file_name,
-                                            timeout=600)
-        lines = response.splitlines()
+        with open("prompt.txt", "r") as f:
+            prompt = f.read()
+        with open(pdf_file_name, "rb") as f:
+            pdf_data = f.read()
+        message = client.messages.create(
+            system=prompt,
+            max_tokens=1024,
+            messages=[
+                {
+                    "role": "user",
+                    "content": extract_text_from_pdf(pdf_data)
+                }
+            ],
+            model=MODEL_NAME,
+        )
+        assistant_response = message.content[0].text
+        assistant_response = assistant_response.replace("•", "-")
+        lines = assistant_response.splitlines()
         for i, line in enumerate(lines):
             if line.startswith('-'):
                 return '\n'.join(lines[i:])
@@ -273,52 +318,28 @@ def add_missing_tags():
         add_todo_tag(item["data"]["key"])
 
 
-@app.route('/ping/', methods=['GET'])
+@app.get('/ping/')
 def ping():
     """Endpoint to check if the server is running."""
-    return jsonify({"status": "Server is up and running!"})
+    return {"status": "Server is up and running!"}
 
 
-@app.route('/add_missing_tags/', methods=['GET'])
-def flask_add_missing_tags():
+@app.get('/add_missing_tags/')
+def fastapi_add_missing_tags():
     """Endpoint to run add_missing_tags function."""
     try:
         add_missing_tags()
-        return jsonify({"status": "Tags added successfully!"})
+        return {"status": "Tags added successfully!"}
     except Exception as e:
-        return jsonify({"status": "Error", "message": str(e)})
+        return {"status": "Error", "message": str(e)}
 
 
-@app.route('/summarize/', methods=['GET'])
-def summarize():
+@app.get('/summarize/')
+def summarize(background_tasks: BackgroundTasks):  # Added BackgroundTasks parameter
     """Endpoint to run summarize_all_docs function in the background."""
-
-    def run_in_background():
-        try:
-            summarize_all_docs()
-        except Exception as e:
-            print(f"Error while summarizing: {e}")  # Log the error, can be improved with a proper logging mechanism
-
-    thread = Thread(target=run_in_background)
-    thread.start()
-    return jsonify({"status": "started summary"})
-
-
-@app.route('/update_cookie/', methods=['POST'])
-def update_cookie():
-    """Endpoint to update CLAUDE_COOKIE."""
-    try:
-        data = request.get_json()
-        key = data.get('key')
-        if not key:
-            return jsonify({"status": "Error", "message": "key not provided"}), 400
-
-        global CLAUDE_COOKIE
-        CLAUDE_COOKIE = key
-        return jsonify({"status": "CLAUDE_COOKIE updated successfully!"})
-    except Exception as e:
-        return jsonify({"status": "Error", "message": str(e)}), 500
+    background_tasks.add_task(summarize_all_docs)  # Run the function in the background
+    return {"status": "started summary"}
 
 
 if __name__ == "__main__":
-    app.run()
+    uvicorn.run(app, host="0.0.0.0", port=5000)  # Run the FastAPI app using uvicorn

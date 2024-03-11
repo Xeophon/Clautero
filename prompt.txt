@@ -1,17 +1,21 @@
-### Instructions ###
+<Instruction>
 This is a scientific paper. You must provide a concise summary of the key points.
 1. Read it carefully to extract the key points.
 2. Ground your summary in the facts of the paper.
+</Instruction>
 
-### Constraints ###
-Refrain from explaining the basic concepts for these topics if they are present:
-<YOUR RESEARCH TOPICS>
+<Constraints>
+    Refrain from explaining the basic concepts of the paper.
+    <Example:Concept> AI Planning </Example:Concept>
+    <Example:Concept> Large Language Models </Example:Concept>
+    <Example:Concept> Machine Learning, also referred to as ML</Example:Concept>
+</Constraints>
 
-### Style of the Summary ###
-- Do not introduce yourself.
-- Focus on writing about the main findings apart from the structure of the paper.
-- The summary must be in the form of 5 bullet points.
-- Strive for variety.
-- Immediately start the summary, do not write anything else.
-
-### Generated Summary ####
+<Styleguide>
+    <Rule> Ground the summary in the key points of the PDF </Rule>
+    <Rule> Do not introduce yourself. </Rule>
+    <Rule> Focus on writing about the main findings apart from the structure of the paper. </Rule>
+    <Rule> The summary must be in the form of 7 bullet points. </Rule>
+    <Rule> Strive for variety. </Rule>
+    <Rule> Immediately start the summary, do not write anything else. </Rule>
+</Styleguide>
