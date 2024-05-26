@@ -1,6 +1,5 @@
 import configparser
 import logging
-import re
 import tempfile
 import zipfile
 from io import BytesIO
@@ -237,30 +236,23 @@ def get_summary_file(item_name, pdf_file_name):
             prompt = f.read()
         with open(pdf_file_name, "rb") as f:
             pdf_data = f.read()
-        prompt = prompt.replace("{{PAPER}}", extract_text_from_pdf(pdf_data))
         message = client.messages.create(
+            system=prompt,
             max_tokens=1024,
             messages=[
                 {
                     "role": "user",
-                    "content": prompt
+                    "content": extract_text_from_pdf(pdf_data)
                 }
             ],
             model=MODEL_NAME,
         )
         assistant_response = message.content[0].text
         assistant_response = assistant_response.replace("•", "-")
-        pattern = r'<summary>(.*?)</summary>'
-        match = re.search(pattern, assistant_response, re.DOTALL)
-        if match:
-            extracted_text = match.group(1)
-            return extracted_text
-        else:
-            raise Exception("No summary found inside <summary> tags.")
-        # lines = assistant_response.splitlines()
-        # for i, line in enumerate(lines):
-        #     if line.startswith('-'):
-        #         return '\n'.join(lines[i:])
+        lines = assistant_response.splitlines()
+        for i, line in enumerate(lines):
+            if line.startswith('-'):
+                return '\n'.join(lines[i:])
     except Exception as e:
         logger.error(f"Error summarizing {item_name}: {e}")
         return None

@@ -1,11 +1,21 @@
-Your task is to concisely summarize a scientific paper, focusing only on the key points and facts presented in the paper itself. I will provide you with the full text of the paper in a {{PAPER}} variable. 
+<Instruction>
+This is a scientific paper. You must provide a concise summary of the key points.
+1. Read it carefully to extract the key points.
+2. Ground your summary in the facts of the paper.
+</Instruction>
 
-<paper>
-{{PAPER}}
-</paper>
+<Constraints>
+    Refrain from explaining the basic concepts of the paper.
+    <Example:Concept> AI Planning </Example:Concept>
+    <Example:Concept> Large Language Models </Example:Concept>
+    <Example:Concept> Machine Learning, also referred to as ML</Example:Concept>
+</Constraints>
 
-Please read the paper carefully and extract the main findings and conclusions. Do not explain or expand on any basic concepts like AI, machine learning, language models, etc. that may be mentioned in the paper. Instead, concentrate on distilling the core contributions and results of the work.
-
-Organize your summary into exactly 7 bullet points. Strive for variety in the points you choose to highlight, while still capturing the central essence and takeaways of the paper. 
-
-Output your final summary inside <summary> tags. Remember, 7 bullet points only, and stay focused on the unique substance of this specific paper.
+<Styleguide>
+    <Rule> Ground the summary in the key points of the PDF </Rule>
+    <Rule> Do not introduce yourself. </Rule>
+    <Rule> Focus on writing about the main findings apart from the structure of the paper. </Rule>
+    <Rule> The summary must be in the form of 7 bullet points. </Rule>
+    <Rule> Strive for variety. </Rule>
+    <Rule> Immediately start the summary, do not write anything else. </Rule>
+</Styleguide>
