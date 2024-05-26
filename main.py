@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 from anthropic import Anthropic
 from fastapi import BackgroundTasks, FastAPI  # Updated import for FastAPI
 from pyzotero import zotero
